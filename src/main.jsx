@@ -815,7 +815,6 @@ function PdfReader({
   requestFileOpen
 }) {
   const viewportRef = useRef(null);
-  const currentPageRef = useRef(null);
   const [containerWidth, setContainerWidth] = useState(900);
 
   useEffect(() => {
@@ -830,58 +829,6 @@ function PdfReader({
 
     return () => observer.disconnect();
   }, []);
-
-  useEffect(() => {
-    if (!viewportRef.current || !currentPageRef.current) return;
-
-    currentPageRef.current.scrollIntoView({
-      block: 'start'
-    });
-  }, [doc.currentPage, pdfDoc]);
-
-  useEffect(() => {
-    const el = viewportRef.current;
-    if (!el || !pdfDoc) return;
-
-    let ticking = false;
-
-    const onScroll = () => {
-      if (ticking) return;
-
-      ticking = true;
-
-      window.requestAnimationFrame(() => {
-        ticking = false;
-
-        const pageEls = Array.from(el.querySelectorAll('[data-page-number]'));
-        const viewportTop = el.getBoundingClientRect().top;
-
-        let bestPage = doc.currentPage || 1;
-        let bestDistance = Infinity;
-
-        for (const pageEl of pageEls) {
-          const rect = pageEl.getBoundingClientRect();
-          const distance = Math.abs(rect.top - viewportTop - 16);
-
-          if (distance < bestDistance) {
-            bestDistance = distance;
-            bestPage = Number(pageEl.dataset.pageNumber);
-          }
-        }
-
-        if (bestPage && bestPage !== doc.currentPage) {
-          patchCurrentDoc((draft) => {
-            draft.currentPage = bestPage;
-            draft.lastOpenedAt = new Date().toISOString();
-          });
-        }
-      });
-    };
-
-    el.addEventListener('scroll', onScroll, { passive: true });
-
-    return () => el.removeEventListener('scroll', onScroll);
-  }, [pdfDoc, doc.currentPage, patchCurrentDoc]);
 
   if (!pdfDoc) {
     return (
@@ -899,30 +846,94 @@ function PdfReader({
     );
   }
 
-  const pageNumbers = Array.from({ length: pdfDoc.numPages }, (_, index) => index + 1);
+  const totalPages = pdfDoc.numPages;
+  const currentPage = normalizePage(doc.currentPage || 1, totalPages);
+
+  const visiblePages = [];
+  const startPage = Math.max(1, currentPage - 2);
+  const endPage = Math.min(totalPages, currentPage + 2);
+
+  for (let pageNumber = startPage; pageNumber <= endPage; pageNumber += 1) {
+    visiblePages.push(pageNumber);
+  }
+
+  function jumpToPage(pageNumber) {
+    updatePage(normalizePage(pageNumber, totalPages));
+
+    patchCurrentDoc((draft) => {
+      draft.currentPage = normalizePage(pageNumber, totalPages);
+      draft.lastOpenedAt = new Date().toISOString();
+    });
+
+    if (viewportRef.current) {
+      viewportRef.current.scrollTo({
+        top: 0,
+        behavior: 'instant'
+      });
+    }
+  }
 
   return (
     <div className="pdf-viewport" ref={viewportRef}>
-      <div className="pdf-pages">
-        {pageNumbers.map((pageNumber) => (
-          <PdfPage
-            key={pageNumber}
-            ref={pageNumber === doc.currentPage ? currentPageRef : null}
-            pdfDoc={pdfDoc}
-            pageNumber={pageNumber}
-            zoom={zoom}
-            fitWidth={fitWidth}
-            containerWidth={containerWidth}
-            isCurrent={pageNumber === doc.currentPage}
-            onJump={() => updatePage(pageNumber)}
-          />
-        ))}
+      <div className="pdf-window-reader">
+        <div className="page-navigation-strip">
+          <button
+            className="button"
+            disabled={currentPage <= 1}
+            onClick={() => jumpToPage(1)}
+          >
+            First
+          </button>
+
+          <button
+            className="button"
+            disabled={currentPage <= 1}
+            onClick={() => jumpToPage(currentPage - 1)}
+          >
+            Previous page
+          </button>
+
+          <div className="page-position">
+            Page {currentPage} of {totalPages}
+          </div>
+
+          <button
+            className="button"
+            disabled={currentPage >= totalPages}
+            onClick={() => jumpToPage(currentPage + 1)}
+          >
+            Next page
+          </button>
+
+          <button
+            className="button"
+            disabled={currentPage >= totalPages}
+            onClick={() => jumpToPage(totalPages)}
+          >
+            Last
+          </button>
+        </div>
+
+        <div className="pdf-pages">
+          {visiblePages.map((pageNumber) => (
+            <PdfPage
+              key={`${pageNumber}-${zoom}-${fitWidth}-${containerWidth}`}
+              pdfDoc={pdfDoc}
+              pageNumber={pageNumber}
+              zoom={zoom}
+              fitWidth={fitWidth}
+              containerWidth={containerWidth}
+              isCurrent={pageNumber === currentPage}
+              onJump={() => jumpToPage(pageNumber)}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );
 }
 
-const PdfPage = React.forwardRef(function PdfPage({
+function PdfPage({
   pdfDoc,
   pageNumber,
   zoom,
@@ -930,7 +941,7 @@ const PdfPage = React.forwardRef(function PdfPage({
   containerWidth,
   isCurrent,
   onJump
-}, ref) {
+}) {
   const canvasRef = useRef(null);
   const textLayerRef = useRef(null);
   const renderTaskRef = useRef(null);
@@ -938,17 +949,21 @@ const PdfPage = React.forwardRef(function PdfPage({
     width: 800,
     height: 1100
   });
+  const [renderStatus, setRenderStatus] = useState('loading');
 
   useEffect(() => {
     let cancelled = false;
 
     async function renderPage() {
+      setRenderStatus('loading');
+
       try {
         const page = await pdfDoc.getPage(pageNumber);
 
         if (cancelled) return;
 
         const baseViewport = page.getViewport({ scale: 1 });
+
         const scale = fitWidth
           ? Math.max(0.5, Math.min(3, containerWidth / baseViewport.width))
           : zoom;
@@ -959,6 +974,10 @@ const PdfPage = React.forwardRef(function PdfPage({
           width: viewport.width,
           height: viewport.height
         });
+
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+
+        if (cancelled) return;
 
         const canvas = canvasRef.current;
         const textLayer = textLayerRef.current;
@@ -977,6 +996,8 @@ const PdfPage = React.forwardRef(function PdfPage({
         canvas.style.height = `${viewport.height}px`;
 
         context.setTransform(outputScale, 0, 0, outputScale, 0, 0);
+        context.fillStyle = '#ffffff';
+        context.fillRect(0, 0, viewport.width, viewport.height);
 
         if (renderTaskRef.current) {
           try {
@@ -999,6 +1020,7 @@ const PdfPage = React.forwardRef(function PdfPage({
           if (error?.name !== 'RenderingCancelledException') {
             console.error(error);
           }
+          return;
         }
 
         if (cancelled) return;
@@ -1007,22 +1029,31 @@ const PdfPage = React.forwardRef(function PdfPage({
         textLayer.style.width = `${viewport.width}px`;
         textLayer.style.height = `${viewport.height}px`;
 
-        const textContent = await page.getTextContent();
+        try {
+          const textContent = await page.getTextContent();
 
-        if (cancelled) return;
+          if (cancelled) return;
 
-        if (pdfjsLib.TextLayer) {
-          const layer = new pdfjsLib.TextLayer({
-            textContentSource: textContent,
-            container: textLayer,
-            viewport
-          });
+          if (pdfjsLib.TextLayer) {
+            const layer = new pdfjsLib.TextLayer({
+              textContentSource: textContent,
+              container: textLayer,
+              viewport
+            });
 
-          await layer.render();
+            await layer.render();
+          }
+        } catch (textError) {
+          console.warn(`Text layer failed on page ${pageNumber}`, textError);
+        }
+
+        if (!cancelled) {
+          setRenderStatus('ready');
         }
       } catch (error) {
         if (error?.name !== 'RenderingCancelledException') {
           console.error(`Could not render page ${pageNumber}`, error);
+          setRenderStatus('error');
         }
       }
     }
@@ -1044,7 +1075,6 @@ const PdfPage = React.forwardRef(function PdfPage({
 
   return (
     <section
-      ref={ref}
       className={`pdf-page-wrap ${isCurrent ? 'current-page' : ''}`}
       data-page-number={pageNumber}
     >
@@ -1059,12 +1089,24 @@ const PdfPage = React.forwardRef(function PdfPage({
           height: pageSize.height
         }}
       >
+        {renderStatus === 'loading' && (
+          <div className="page-loading">
+            Rendering page {pageNumber}...
+          </div>
+        )}
+
+        {renderStatus === 'error' && (
+          <div className="page-loading error">
+            Could not render page {pageNumber}
+          </div>
+        )}
+
         <canvas ref={canvasRef} />
         <div ref={textLayerRef} className="textLayer" />
       </div>
     </section>
   );
-});
+}
 
 function SidePanel(props) {
   const tabs = [
