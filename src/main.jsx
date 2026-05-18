@@ -31,6 +31,7 @@ function todayKey() {
 
 function formatDate(value) {
   if (!value) return '';
+
   try {
     return new Intl.DateTimeFormat(undefined, {
       weekday: 'short',
@@ -45,6 +46,7 @@ function formatDate(value) {
 
 function formatTime(value) {
   if (!value) return '';
+
   try {
     return new Intl.DateTimeFormat(undefined, {
       hour: '2-digit',
@@ -73,7 +75,9 @@ function loadLibrary() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return defaultLibrary;
+
     const parsed = JSON.parse(raw);
+
     return {
       ...defaultLibrary,
       ...parsed,
@@ -93,6 +97,7 @@ function saveLibrary(library) {
 
 function createDocumentRecord(file) {
   const id = makeFingerprint(file);
+
   return {
     id,
     name: file.name,
@@ -112,13 +117,16 @@ function createDocumentRecord(file) {
 
 function humanFileSize(bytes) {
   if (!bytes) return 'Unknown size';
+
   const units = ['B', 'KB', 'MB', 'GB'];
   let value = bytes;
   let index = 0;
+
   while (value >= 1024 && index < units.length - 1) {
     value /= 1024;
     index += 1;
   }
+
   return `${value.toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
 }
 
@@ -131,16 +139,20 @@ function downloadText(filename, text, type = 'application/json') {
   const blob = new Blob([text], { type });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
+
   a.href = url;
   a.download = filename;
+
   document.body.appendChild(a);
   a.click();
   a.remove();
+
   URL.revokeObjectURL(url);
 }
 
 function exportMarkdown(doc) {
   const lines = [];
+
   lines.push(`# ${doc.name}`);
   lines.push('');
   lines.push(`Current page: ${doc.currentPage}${doc.totalPages ? ` / ${doc.totalPages}` : ''}`);
@@ -150,13 +162,18 @@ function exportMarkdown(doc) {
 
   lines.push('## Manual structure');
   if (!doc.structure?.length) lines.push('No manual structure added yet.');
+
   [...(doc.structure || [])]
     .sort((a, b) => a.page - b.page)
-    .forEach((item) => lines.push(`- Page ${item.page}: ${item.title}`));
+    .forEach((item) => {
+      lines.push(`- Page ${item.page}: ${item.title}`);
+    });
+
   lines.push('');
 
   lines.push('## Bookmarks');
   if (!doc.bookmarks?.length) lines.push('No bookmarks yet.');
+
   [...(doc.bookmarks || [])]
     .sort((a, b) => a.page - b.page)
     .forEach((item) => {
@@ -168,6 +185,7 @@ function exportMarkdown(doc) {
 
   lines.push('## Notes');
   if (!doc.notes?.length) lines.push('No notes yet.');
+
   [...(doc.notes || [])]
     .sort((a, b) => a.page - b.page)
     .forEach((note) => {
@@ -180,6 +198,7 @@ function exportMarkdown(doc) {
 
   lines.push('## Reading trail');
   if (!doc.sessions?.length) lines.push('No sessions yet.');
+
   [...(doc.sessions || [])]
     .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
     .forEach((session) => {
@@ -220,6 +239,7 @@ function App() {
 
   const patchCurrentDoc = useCallback((mutator) => {
     if (!currentId) return;
+
     patchLibrary((prev) => {
       const existing = prev.documents[currentId];
       if (!existing) return prev;
@@ -249,15 +269,16 @@ function App() {
       const loadedPdf = await loadingTask.promise;
       const id = makeFingerprint(file);
 
+      const existingCurrentPage = library.documents[id]?.currentPage || 1;
+
       setPdfBytes(bytes);
       setPdfDoc(loadedPdf);
       setCurrentId(id);
-
-      const existingCurrentPage = library.documents[id]?.currentPage || 1;
       setPageInput(String(existingCurrentPage));
 
       patchLibrary((prev) => {
         const existing = prev.documents[id] || createDocumentRecord(file);
+
         const updated = {
           ...existing,
           name: file.name,
@@ -467,6 +488,7 @@ function App() {
     reader.onload = () => {
       try {
         const imported = JSON.parse(String(reader.result));
+
         if (!imported.documents || !imported.recent) {
           throw new Error('Invalid file');
         }
@@ -822,7 +844,7 @@ function PdfReader({
 
     const observer = new ResizeObserver((entries) => {
       const width = entries[0]?.contentRect?.width;
-      if (width) setContainerWidth(Math.max(320, width - 40));
+      if (width) setContainerWidth(Math.max(320, width - 60));
     });
 
     observer.observe(viewportRef.current);
@@ -849,26 +871,20 @@ function PdfReader({
   const totalPages = pdfDoc.numPages;
   const currentPage = normalizePage(doc.currentPage || 1, totalPages);
 
-  const visiblePages = [];
-  const startPage = Math.max(1, currentPage - 2);
-  const endPage = Math.min(totalPages, currentPage + 2);
-
-  for (let pageNumber = startPage; pageNumber <= endPage; pageNumber += 1) {
-    visiblePages.push(pageNumber);
-  }
-
   function jumpToPage(pageNumber) {
-    updatePage(normalizePage(pageNumber, totalPages));
+    const normalizedPage = normalizePage(pageNumber, totalPages);
+
+    updatePage(normalizedPage);
 
     patchCurrentDoc((draft) => {
-      draft.currentPage = normalizePage(pageNumber, totalPages);
+      draft.currentPage = normalizedPage;
       draft.lastOpenedAt = new Date().toISOString();
     });
 
     if (viewportRef.current) {
       viewportRef.current.scrollTo({
         top: 0,
-        behavior: 'instant'
+        behavior: 'auto'
       });
     }
   }
@@ -914,19 +930,17 @@ function PdfReader({
           </button>
         </div>
 
-        <div className="pdf-pages">
-          {visiblePages.map((pageNumber) => (
-            <PdfPage
-              key={`${pageNumber}-${zoom}-${fitWidth}-${containerWidth}`}
-              pdfDoc={pdfDoc}
-              pageNumber={pageNumber}
-              zoom={zoom}
-              fitWidth={fitWidth}
-              containerWidth={containerWidth}
-              isCurrent={pageNumber === currentPage}
-              onJump={() => jumpToPage(pageNumber)}
-            />
-          ))}
+        <div className="single-page-stage">
+          <PdfPage
+            key={`${currentPage}-${zoom}-${fitWidth}-${containerWidth}`}
+            pdfDoc={pdfDoc}
+            pageNumber={currentPage}
+            zoom={zoom}
+            fitWidth={fitWidth}
+            containerWidth={containerWidth}
+            isCurrent={true}
+            onJump={() => jumpToPage(currentPage)}
+          />
         </div>
       </div>
     </div>
@@ -945,10 +959,12 @@ function PdfPage({
   const canvasRef = useRef(null);
   const textLayerRef = useRef(null);
   const renderTaskRef = useRef(null);
+
   const [pageSize, setPageSize] = useState({
     width: 800,
     height: 1100
   });
+
   const [renderStatus, setRenderStatus] = useState('loading');
 
   useEffect(() => {
@@ -965,24 +981,27 @@ function PdfPage({
         const baseViewport = page.getViewport({ scale: 1 });
 
         const scale = fitWidth
-          ? Math.max(0.5, Math.min(3, containerWidth / baseViewport.width))
+          ? Math.max(0.5, Math.min(2.5, containerWidth / baseViewport.width))
           : zoom;
 
         const viewport = page.getViewport({ scale });
 
         setPageSize({
-          width: viewport.width,
-          height: viewport.height
+          width: Math.floor(viewport.width),
+          height: Math.floor(viewport.height)
         });
 
-        await new Promise((resolve) => requestAnimationFrame(resolve));
+        await new Promise((resolve) => window.requestAnimationFrame(resolve));
 
         if (cancelled) return;
 
         const canvas = canvasRef.current;
         const textLayer = textLayerRef.current;
 
-        if (!canvas || !textLayer) return;
+        if (!canvas) {
+          setRenderStatus('error');
+          return;
+        }
 
         const context = canvas.getContext('2d', {
           alpha: false
@@ -992,8 +1011,8 @@ function PdfPage({
 
         canvas.width = Math.floor(viewport.width * outputScale);
         canvas.height = Math.floor(viewport.height * outputScale);
-        canvas.style.width = `${viewport.width}px`;
-        canvas.style.height = `${viewport.height}px`;
+        canvas.style.width = `${Math.floor(viewport.width)}px`;
+        canvas.style.height = `${Math.floor(viewport.height)}px`;
 
         context.setTransform(outputScale, 0, 0, outputScale, 0, 0);
         context.fillStyle = '#ffffff';
@@ -1007,44 +1026,37 @@ function PdfPage({
           }
         }
 
-        const task = page.render({
+        const renderTask = page.render({
           canvasContext: context,
           viewport
         });
 
-        renderTaskRef.current = task;
+        renderTaskRef.current = renderTask;
 
-        try {
-          await task.promise;
-        } catch (error) {
-          if (error?.name !== 'RenderingCancelledException') {
-            console.error(error);
-          }
-          return;
-        }
+        await renderTask.promise;
 
         if (cancelled) return;
 
-        textLayer.innerHTML = '';
-        textLayer.style.width = `${viewport.width}px`;
-        textLayer.style.height = `${viewport.height}px`;
+        if (textLayer) {
+          textLayer.innerHTML = '';
+          textLayer.style.width = `${Math.floor(viewport.width)}px`;
+          textLayer.style.height = `${Math.floor(viewport.height)}px`;
 
-        try {
-          const textContent = await page.getTextContent();
+          try {
+            const textContent = await page.getTextContent();
 
-          if (cancelled) return;
+            if (!cancelled && pdfjsLib.TextLayer) {
+              const layer = new pdfjsLib.TextLayer({
+                textContentSource: textContent,
+                container: textLayer,
+                viewport
+              });
 
-          if (pdfjsLib.TextLayer) {
-            const layer = new pdfjsLib.TextLayer({
-              textContentSource: textContent,
-              container: textLayer,
-              viewport
-            });
-
-            await layer.render();
+              await layer.render();
+            }
+          } catch (textError) {
+            console.warn(`Text layer failed on page ${pageNumber}`, textError);
           }
-        } catch (textError) {
-          console.warn(`Text layer failed on page ${pageNumber}`, textError);
         }
 
         if (!cancelled) {
@@ -1085,8 +1097,8 @@ function PdfPage({
       <div
         className="pdf-page"
         style={{
-          width: pageSize.width,
-          height: pageSize.height
+          width: `${pageSize.width}px`,
+          height: `${pageSize.height}px`
         }}
       >
         {renderStatus === 'loading' && (
@@ -1097,12 +1109,12 @@ function PdfPage({
 
         {renderStatus === 'error' && (
           <div className="page-loading error">
-            Could not render page {pageNumber}
+            Could not render page {pageNumber}. Open the browser console for details.
           </div>
         )}
 
-        <canvas ref={canvasRef} />
-        <div ref={textLayerRef} className="textLayer" />
+        <canvas ref={canvasRef} className="pdf-canvas" />
+        <div ref={textLayerRef} className="textLayer pdf-text-layer" />
       </div>
     </section>
   );
