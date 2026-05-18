@@ -8,7 +8,6 @@ import './styles.css';
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
 const PDFJS_ASSET_BASE = `${import.meta.env.BASE_URL || './'}pdfjs/`;
-
 const STORAGE_KEY = 'pagetrail:v2';
 
 const defaultLibrary = {
@@ -19,7 +18,8 @@ const defaultLibrary = {
     focusMode: false,
     sidePanel: true,
     zoom: 1.25,
-    fitWidth: true
+    fitWidth: true,
+    displayMode: 'pdfjs'
   }
 };
 
@@ -214,6 +214,7 @@ function App() {
   const [library, setLibrary] = useState(loadLibrary);
   const [pdfDoc, setPdfDoc] = useState(null);
   const [pdfBytes, setPdfBytes] = useState(null);
+  const [fileUrl, setFileUrl] = useState(null);
   const [currentId, setCurrentId] = useState(null);
   const [pageInput, setPageInput] = useState('1');
   const [activeTab, setActiveTab] = useState('notes');
@@ -234,6 +235,14 @@ function App() {
   useEffect(() => {
     saveLibrary(library);
   }, [library]);
+
+  useEffect(() => {
+    return () => {
+      if (fileUrl) {
+        URL.revokeObjectURL(fileUrl);
+      }
+    };
+  }, [fileUrl]);
 
   const patchLibrary = useCallback((updater) => {
     setLibrary((prev) => updater(prev));
@@ -267,12 +276,21 @@ function App() {
 
     try {
       const bytes = await file.arrayBuffer();
+
+      if (fileUrl) {
+        URL.revokeObjectURL(fileUrl);
+      }
+
+      const nextFileUrl = URL.createObjectURL(file);
+      setFileUrl(nextFileUrl);
+
       const loadingTask = pdfjsLib.getDocument({
-  data: bytes.slice(0),
-  wasmUrl: `${PDFJS_ASSET_BASE}wasm/`,
-  useWorkerFetch: true,
-  isEvalSupported: false
-});
+        data: bytes.slice(0),
+        wasmUrl: `${PDFJS_ASSET_BASE}wasm/`,
+        useWorkerFetch: true,
+        isEvalSupported: false
+      });
+
       const loadedPdf = await loadingTask.promise;
       const id = makeFingerprint(file);
 
@@ -325,6 +343,7 @@ function App() {
     setCurrentId(id);
     setPdfDoc(null);
     setPdfBytes(null);
+    setFileUrl(null);
     setStatus('Reading data loaded. Reopen the local PDF file to display pages.');
   }
 
@@ -347,6 +366,26 @@ function App() {
         ...prev.settings,
         zoom: clamp(Number(value), 0.5, 3),
         fitWidth: false
+      }
+    }));
+  }
+
+  function setFitWidth(value) {
+    patchLibrary((prev) => ({
+      ...prev,
+      settings: {
+        ...prev.settings,
+        fitWidth: value
+      }
+    }));
+  }
+
+  function setDisplayMode(value) {
+    patchLibrary((prev) => ({
+      ...prev,
+      settings: {
+        ...prev.settings,
+        displayMode: value
       }
     }));
   }
@@ -634,15 +673,9 @@ function App() {
                 zoom={library.settings.zoom}
                 setZoom={setZoom}
                 fitWidth={library.settings.fitWidth}
-                setFitWidth={(value) => {
-                  patchLibrary((prev) => ({
-                    ...prev,
-                    settings: {
-                      ...prev.settings,
-                      fitWidth: value
-                    }
-                  }));
-                }}
+                setFitWidth={setFitWidth}
+                displayMode={library.settings.displayMode}
+                setDisplayMode={setDisplayMode}
                 onBack={() => setCurrentId(null)}
                 onSaveSession={saveSession}
                 onExportMarkdown={exportCurrentMarkdown}
@@ -654,6 +687,8 @@ function App() {
             <PdfReader
               pdfDoc={pdfDoc}
               pdfBytes={pdfBytes}
+              fileUrl={fileUrl}
+              displayMode={library.settings.displayMode}
               doc={currentDoc}
               zoom={library.settings.zoom}
               fitWidth={library.settings.fitWidth}
@@ -755,6 +790,8 @@ function ReaderToolbar({
   setZoom,
   fitWidth,
   setFitWidth,
+  displayMode,
+  setDisplayMode,
   onBack,
   onSaveSession,
   onExportMarkdown,
@@ -812,18 +849,47 @@ function ReaderToolbar({
           />
         </div>
 
+        <div className="display-mode-controls">
+          <button
+            className={`button small ${displayMode === 'pdfjs' ? 'active' : ''}`}
+            onClick={() => setDisplayMode('pdfjs')}
+          >
+            PDF.js
+          </button>
+
+          <button
+            className={`button small ${displayMode === 'browser' ? 'active' : ''}`}
+            onClick={() => setDisplayMode('browser')}
+          >
+            Browser
+          </button>
+        </div>
+
         <div className="zoom-controls">
           <button
             className={`button small ${fitWidth ? 'active' : ''}`}
             onClick={() => setFitWidth(!fitWidth)}
+            disabled={displayMode === 'browser'}
+            title={displayMode === 'browser' ? 'Zoom is controlled by the browser PDF viewer in Browser Mode.' : ''}
           >
             Fit width
           </button>
-          <button className="button small" onClick={() => setZoom(zoom - 0.1)}>
+
+          <button
+            className="button small"
+            onClick={() => setZoom(zoom - 0.1)}
+            disabled={displayMode === 'browser'}
+          >
             -
           </button>
+
           <span className="zoom-label">{Math.round(zoom * 100)}%</span>
-          <button className="button small" onClick={() => setZoom(zoom + 0.1)}>
+
+          <button
+            className="button small"
+            onClick={() => setZoom(zoom + 0.1)}
+            disabled={displayMode === 'browser'}
+          >
             +
           </button>
         </div>
@@ -836,6 +902,8 @@ function ReaderToolbar({
 
 function PdfReader({
   pdfDoc,
+  fileUrl,
+  displayMode,
   doc,
   zoom,
   fitWidth,
@@ -858,6 +926,18 @@ function PdfReader({
 
     return () => observer.disconnect();
   }, []);
+
+  if (displayMode === 'browser') {
+    return (
+      <BrowserPdfReader
+        fileUrl={fileUrl}
+        doc={doc}
+        updatePage={updatePage}
+        patchCurrentDoc={patchCurrentDoc}
+        requestFileOpen={requestFileOpen}
+      />
+    );
+  }
 
   if (!pdfDoc) {
     return (
@@ -949,6 +1029,97 @@ function PdfReader({
             onJump={() => jumpToPage(currentPage)}
           />
         </div>
+      </div>
+    </div>
+  );
+}
+
+function BrowserPdfReader({
+  fileUrl,
+  doc,
+  updatePage,
+  patchCurrentDoc,
+  requestFileOpen
+}) {
+  const totalPages = doc.totalPages || 1;
+  const currentPage = normalizePage(doc.currentPage || 1, totalPages);
+
+  function jumpToPage(pageNumber) {
+    const normalizedPage = normalizePage(pageNumber, totalPages);
+
+    updatePage(normalizedPage);
+
+    patchCurrentDoc((draft) => {
+      draft.currentPage = normalizedPage;
+      draft.lastOpenedAt = new Date().toISOString();
+    });
+  }
+
+  if (!fileUrl) {
+    return (
+      <div className="pdf-empty">
+        <h2>Reopen the PDF file to use Browser Mode.</h2>
+        <p>
+          Browser Mode uses your browser’s native PDF renderer. This is often better
+          for scanned books and image-heavy PDFs, but the browser still requires you
+          to choose the local file again.
+        </p>
+        <button className="button primary big" onClick={requestFileOpen}>
+          Reopen PDF
+        </button>
+      </div>
+    );
+  }
+
+  const browserPdfSrc = `${fileUrl}#page=${currentPage}&view=FitH`;
+
+  return (
+    <div className="browser-reader">
+      <div className="page-navigation-strip">
+        <button
+          className="button"
+          disabled={currentPage <= 1}
+          onClick={() => jumpToPage(1)}
+        >
+          First
+        </button>
+
+        <button
+          className="button"
+          disabled={currentPage <= 1}
+          onClick={() => jumpToPage(currentPage - 1)}
+        >
+          Previous page
+        </button>
+
+        <div className="page-position">
+          Page {currentPage} of {totalPages}
+        </div>
+
+        <button
+          className="button"
+          disabled={currentPage >= totalPages}
+          onClick={() => jumpToPage(currentPage + 1)}
+        >
+          Next page
+        </button>
+
+        <button
+          className="button"
+          disabled={currentPage >= totalPages}
+          onClick={() => jumpToPage(totalPages)}
+        >
+          Last
+        </button>
+      </div>
+
+      <div className="browser-frame-shell">
+        <iframe
+          key={browserPdfSrc}
+          title={`Browser PDF viewer page ${currentPage}`}
+          className="browser-pdf-frame"
+          src={browserPdfSrc}
+        />
       </div>
     </div>
   );
