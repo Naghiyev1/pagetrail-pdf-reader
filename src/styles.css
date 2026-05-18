@@ -690,3 +690,57 @@ button {
     padding: 0.6rem;
   }
 }
+
+.pdf-window-reader {
+  width: 100%;
+}
+
+.page-navigation-strip {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px;
+  margin-bottom: 18px;
+  border-radius: 24px;
+  background: rgba(255, 248, 235, 0.92);
+  border: 1px solid rgba(60, 44, 30, 0.12);
+  backdrop-filter: blur(12px);
+}
+
+.page-position {
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(60, 44, 30, 0.08);
+  color: var(--text);
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.page-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #7c6f60;
+  font-size: 14px;
+  background: #ffffff;
+  z-index: 1;
+}
+
+.page-loading.error {
+  color: #a33;
+}
+
+.pdf-page canvas {
+  position: relative;
+  z-index: 2;
+}
+
+.pdf-page .textLayer {
+  z-index: 3;
+}
