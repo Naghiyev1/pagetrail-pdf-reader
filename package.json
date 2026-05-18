@@ -1,0 +1,23 @@
+{
+  "name": "pagetrail-pdf-reader",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "deploy": "npm run build && gh-pages -d dist"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "latest",
+    "vite": "latest",
+    "typescript": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "pdfjs-dist": "latest"
+  },
+  "devDependencies": {
+    "gh-pages": "latest"
+  }
+}
