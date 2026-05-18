@@ -7,6 +7,8 @@ import './styles.css';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
+const PDFJS_ASSET_BASE = `${import.meta.env.BASE_URL || './'}pdfjs/`;
+
 const STORAGE_KEY = 'pagetrail:v2';
 
 const defaultLibrary = {
@@ -265,7 +267,12 @@ function App() {
 
     try {
       const bytes = await file.arrayBuffer();
-      const loadingTask = pdfjsLib.getDocument({ data: bytes.slice(0) });
+      const loadingTask = pdfjsLib.getDocument({
+  data: bytes.slice(0),
+  wasmUrl: `${PDFJS_ASSET_BASE}wasm/`,
+  useWorkerFetch: true,
+  isEvalSupported: false
+});
       const loadedPdf = await loadingTask.promise;
       const id = makeFingerprint(file);
 
