@@ -782,3 +782,25 @@ button:disabled {
     padding: 0 0.6rem 0.6rem;
   }
 }
+
+/* Softer Browser Mode for scanned books */
+.browser-frame-shell {
+  background: #2f2a22;
+}
+
+/* 
+  Browser Mode uses the browser's native PDF viewer.
+  We cannot directly style the viewer's internal white background,
+  so we gently dim the whole iframe instead.
+*/
+.theme-sepia .browser-pdf-frame {
+  filter: brightness(0.88) contrast(1.04) sepia(0.08);
+}
+
+.theme-dark .browser-pdf-frame {
+  filter: brightness(0.78) contrast(1.08) sepia(0.05);
+}
+
+.theme-light .browser-pdf-frame {
+  filter: brightness(0.94) contrast(1.02);
+}
