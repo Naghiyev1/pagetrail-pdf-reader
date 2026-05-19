@@ -794,7 +794,7 @@ button:disabled {
   so we gently dim the whole iframe instead.
 */
 .theme-sepia .browser-pdf-frame {
-  filter: brightness(0.88) contrast(1.04) sepia(0.08);
+  filter: brightness(0.82) contrast(1.06) sepia(0.10);
 }
 
 .theme-dark .browser-pdf-frame {
