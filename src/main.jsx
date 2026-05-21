@@ -1158,8 +1158,14 @@ function PdfPage({
 
         const baseViewport = page.getViewport({ scale: 1 });
 
-        const scale = fitWidth
-          ? Math.max(0.5, Math.min(2.5, containerWidth / baseViewport.width))
+        const isMobile = window.matchMedia('(max-width: 760px)').matches;
+
+        const safeWidth = isMobile
+          ? Math.max(280, document.documentElement.clientWidth - 24)
+          : containerWidth;
+
+        const scale = isMobile || fitWidth
+          ? Math.max(0.2, Math.min(2.5, safeWidth / baseViewport.width))
           : zoom;
 
         const viewport = page.getViewport({ scale });
